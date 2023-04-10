@@ -5,6 +5,7 @@ import logging
 import json
 import re
 import openai
+import paramiko
 
 requests.packages.urllib3.disable_warnings()
 
@@ -20,7 +21,12 @@ PROMPT_K8S01 = ('''I will enter a sentence, and you will do the linguistic analy
                 '''then change the Value of the item with Key "Target" to "service", and Key "Name " to the name  '''
                 '''of the service or microservice or micro-service; if you think I'm asking about the health  '''
                 '''or quality of experience of the service or microservice or micro-service, then change the  '''
-                '''Value of the item with the Key "Type" to "FSO ". If none of the above, then output this JSON  '''
+                '''Value of the item with the Key "Type" to "FSO ". '''
+                '''If you think this sentence is asking for the status of a specific Kubernetes cluster, then set  '''
+                '''the value of the key "Target" to the name of that cluster, and set the value of the  '''
+                '''key "Type" to "K8S".  If namespace is mentioned, then set the value of the key "Name" to  '''
+                '''the name of the namespace.  '''
+                '''If none of the above, then output this JSON  '''
                 '''data directly without making any changes. Your answer only needs to contain JSON data, no other  '''
                 '''extra characters. Now analyze the following sentence and output the JSON data: ''')
 
@@ -32,6 +38,12 @@ PROMPT_K8S02 = ('''Based on your knowledge of the Flow Telemetry information for
                 '''solutions.  '''
                 '''Please start with language like this: After insight, we found network anomalies.  '''
                 '''Please answer in {} language, and try to explain more''')
+
+PROMPT_K8S03 = ('''You are now an application and I give you an administrative task below about the  '''
+                '''Kubernetes system (k8s version is 1.21, CNI is Calico with IPIP=never and SNAT disabled),  '''
+                '''you give the command line to complete that task directly and your answer must only  '''
+                '''contain ONE command line, without any additional characters.  '''
+                '''I give the following task:  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -59,6 +71,47 @@ TE_headers = {
     "Accept": "application/json",
     "Content-Type": "application/json"
 }
+
+
+def configbyssh(host, cmd):
+    '''
+    SSHClient Testing
+    '''
+    try:
+        # create sshClient obj
+        ssh = paramiko.SSHClient()
+        # trust remote host, allow access
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    except:
+        print("There is an error with the SSHClient")
+    try:
+        # connect to remote host
+        ssh.connect(host["host"],
+                    host["port"],
+                    host["user"],
+                    host["pass"])
+    except:
+        print("Failed to connect to remote server")
+    ''' 
+    execute the commands 
+    '''
+    try:
+        # note that every time we execute will be in new env
+        stdin, stdout, stderr = ssh.exec_command(cmd)
+
+        if stderr.readlines():
+            print(stderr.readlines())
+
+        result = stdout.read()
+        result_str = result.decode('utf-8')
+
+        return result_str
+
+    except:
+        print('Fail to execute command')
+
+    # close ssh session
+    ssh.close()
 
 
 # A simple command that returns a basic string that will be sent as a reply
@@ -516,27 +569,43 @@ def ask_k8s(msg):
     """
     add by Weihang
     """
+    # Analyze the prompt and return task JSON data
     prompt = PROMPT_K8S01 + msg.text
-
     task = json.loads(chat_withoutlog(prompt))
     print(task)
     language = task["Language"]
-    anomalies = ""
-    if "service" in task["Target"] and task["Type"] == "FSO":
-        anomalies = check_svc_network(task["Name"])
 
-    print("anomalies ---> ", anomalies)
-    if anomalies:
-        question = PROMPT_K8S02.format(anomalies, language)
+    # ask question based on task analysis
+    if task["Type"] == "K8S":
+        if task["Name"]:
+            question = PROMPT_K8S03 + "In the namespace {}, ".format(task["Name"]) + msg.text
+        else:
+            question = PROMPT_K8S03 + msg.text
         print("question ---> ", question)
-        answer = chat_withoutlog(question)
+        k8s_cmd = chat_withoutlog(question)
+        print(k8s_cmd)
+        if "kubectl" in k8s_cmd or "calicoctl" in k8s_cmd:
+            answer = configbyssh(SSH_HOST, k8s_cmd)
+        else:
+            answer = k8s_cmd
+
     else:
-        question = ('''Please express the following in {}:  '''
-                    '''It appears that there is nothing wrong with your underlying network and  '''
-                    '''the quality of service is likely to be a failure at the host, OS level  '''
-                    '''or application level.  ''').format(language)
-        print("question ---> ", question)
-        answer = chat_withoutlog(question)
+        anomalies = ""
+        if "service" in task["Target"] and task["Type"] == "FSO":
+            anomalies = check_svc_network(task["Name"])
+
+        print("anomalies ---> ", anomalies)
+        if anomalies:
+            question = PROMPT_K8S02.format(anomalies, language)
+            print("question ---> ", question)
+            answer = chat_withoutlog(question)
+        else:
+            question = ('''Please express the following in {}:  '''
+                        '''It appears that there is nothing wrong with your underlying network and  '''
+                        '''the quality of service is likely to be a failure at the host, OS level  '''
+                        '''or application level.  ''').format(language)
+            print("question ---> ", question)
+            answer = chat_withoutlog(question)
 
     return answer
 
