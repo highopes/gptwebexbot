@@ -632,7 +632,8 @@ bot.add_command("/ask-chinese-guide",
                 ask_ChatGPT_guide_chinese)
 bot.add_command("/secure-listincidents", "This will list the active security incidents from SecureX platform ",
                 securex_alarms)
-bot.add_command("/k8s", "Help improve your Kubernetes network (e.g. /k8s 微服务movies的质量变差了, 网络出问题了吗) ",
+bot.add_command("/k8s",
+                "Help improve your Kubernetes network (e.g. /k8s please list all pods' IP addresses of the movies microservice in the Namespace smm-demo in the Kubernetes cluster; /k8s 微服务movies的质量变差了, 网络出问题了吗; /k8s 帮我在Kubernetes集群创建一个名为test001的命名空间） ",
                 ask_k8s)
 
 bot.remove_command("/echo")
