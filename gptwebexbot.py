@@ -14,21 +14,22 @@ openai.api_key = OPENAI_KEY
 # following is the prompt for ChatGPT
 PROMPT_K8S01 = ('''I will enter a sentence, and you will do the linguistic analysis  '''
                 '''and modify the JSON data: {"Language":"", "Target":"", "Name":"", "Type":""},  '''
-                '''then return the modified data to me.  '''
+                '''then return the modified JSON data to me.  '''
                 '''First determine the language used in the sentence and let the value of Key "Language"  '''
                 '''be the name of the language (type is English string). '''
                 '''If you think I have mentioned a service or microservice or micro-service in my input,  '''
-                '''then change the Value of the item with Key "Target" to "service", and Key "Name " to the name  '''
-                '''of the service or microservice or micro-service; if you think I'm asking about the health  '''
-                '''or quality of experience of the service or microservice or micro-service, then change the  '''
-                '''Value of the item with the Key "Type" to "FSO ". '''
+                '''then set the Value of the Key "Target" to the word "service", set the value of the Key "Name"  '''
+                '''to the service name; '''
+                ''' if you think I'm asking about the health  '''
+                '''or quality of experience of the service or microservice or micro-service, then set the  '''
+                '''value of the Key "Type" to "FSO". '''
                 '''If you think this sentence is asking for the status of a specific Kubernetes cluster, then set  '''
                 '''the value of the key "Target" to the name of that cluster, and set the value of the  '''
                 '''key "Type" to "K8S".  If namespace is mentioned, then set the value of the key "Name" to  '''
                 '''the name of the namespace.  '''
                 '''If none of the above, then output this JSON  '''
-                '''data directly without making any changes. Your answer only needs to contain JSON data, no other  '''
-                '''extra characters. Now analyze the following sentence and output the JSON data: ''')
+                '''data directly without making any changes. Your MUST ONLY response the JSON data. You MUST NOT  '''
+                '''add any extra characters. Now analyze the following sentence and output the JSON data: ''')
 
 PROMPT_K8S02 = ('''Based on your knowledge of the Flow Telemetry information for the underlying network  '''
                 '''provided by the Cisco Nexus Insights product, and you already know that this is traffic  '''
@@ -42,7 +43,8 @@ PROMPT_K8S02 = ('''Based on your knowledge of the Flow Telemetry information for
 PROMPT_K8S03 = ('''You are now an application and I give you an administrative task below about the  '''
                 '''Kubernetes system (k8s version is 1.21, CNI is Calico with IPIP=never and SNAT disabled),  '''
                 '''you give the command line to complete that task directly and your answer must only  '''
-                '''contain ONE command line, without any additional characters.  '''
+                '''contain ONE command line in plain text that I can execute directly without any modification.  '''
+                '''Do not use any formatting notation, just give the command line itself! '''
                 '''I give the following task:  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
@@ -471,90 +473,25 @@ def ask_ChatGPT_guide_chinese(questions_number):
 
 def get_flow_anomalies(ip):
     """
-    add by Weihang
+    added by Weihang
     """
     # ToDo:  use NDI API to get anomalies related to ip addresses, and return anomalies list
-    anomaly = '''{
-        "anomalyId": "FLOc8b14c3d5537623c608197f2b66be171b96decfb",
-        "category": "flows",
-        "startTs": "2023-03-31T13:03:30.731Z",
-        "endTs": "2023-03-31T13:03:30.731Z",
-        "activeTs": "2023-03-31T13:03:30.731Z",
-        "anomalyScore": 61,
-        "fabricName": "pek-aci",
-        "entityName": "172.31.66.70,38977,10.124.4.61,53,UDP,CMP_VRF_VMM,CMP_VRF_VMM",
-        "resourceType": "flow",
-        "resourceName": "drop",
-        "anomalyStr": "For flow from 172.31.66.70 port 38977 to 10.124.4.61 port 53, packet drop is detected due to forward drop, ",
-        "anomalyReason": "for flow from 172.31.66.70 port 38977 to 10.124.4.61 port 53, packet drop is detected due to forward drop, ",
-        "recommendation": false,
-        "impact": true,
-        "vendor": "CISCO_ACI",
-        "severity": "major",
-        "anomalyType": "drop",
-        "acknowledged": false,
-        "ackTs": null,
-        "cleared": true,
-        "streamingAnomaly": false,
-        "clearTs": "2023-03-31T13:28:52.684Z",
-        "masterClearTs": "2023-03-31T13:28:40.000Z",
-        "expired": false,
-        "alertType": "anomaly",
-        "title": "",
-        "targetIndex": "<cisco_nir-anomalydb-2023.03.31>",
-        "customData": {},
-        "epochStartTs": 1680267810731,
-        "epochEndTs": 1680267810731,
-        "epochActiveTs": 1680267810731,
-        "mnemonicTitle": "FLOW_DROP",
-        "mnemonicNum": 100103,
-        "mnemonicDescription": "Packet drop detected due to forward drop",
-        "entityNameList": [
-            {
-                "objectType": "leaf",
-                "objectValue": [
-                    "pod1_leaf102"
-                ]
-            }
-        ],
-        "offline": false,
-        "verificationStatus": "NEW",
-        "assignee": "",
-        "tags": [],
-        "comment": "",
-        "manualAck": null,
-        "autoAck": false,
-        "hashKey": 2018151606363828,
-        "checkCodes": [],
-        "multiFabricAlert": false,
-        "nodeNames": [
-            "pod1_leaf102"
-        ],
-        "srcIp": "172.31.66.70",
-        "srcPort": 38977,
-        "dstIp": "10.124.4.61",
-        "dstPort": 53,
-        "protocolName": "UDP",
-        "ingressVrf": "CMP_VRF_VMM",
-        "egressVrf": "CMP_VRF_VMM"
-    }'''
 
     return anomaly
 
 
 def get_svc_address(svc):
     """
-    add by Weihang
+    added by Weihang
     """
     # ToDo:  use kubectl get pods -A -l app=svc -o jsonpath='{range .items[*]}{.status.podIP}{","}{end}' to get ip addesses
-    ip = ["10.124.4.61"]
 
     return ip
 
 
 def check_svc_network(svc):
     """
-    add by Weihang
+    added by Weihang
     """
     ipadd = []
     ipadd.extend(get_svc_address(svc))
@@ -567,7 +504,7 @@ def check_svc_network(svc):
 
 def ask_k8s(msg):
     """
-    add by Weihang
+    added by Weihang
     """
     # Analyze the prompt and return task JSON data
     prompt = PROMPT_K8S01 + msg.text
@@ -591,7 +528,7 @@ def ask_k8s(msg):
 
     else:
         anomalies = ""
-        if "service" in task["Target"] and task["Type"] == "FSO":
+        if task["Type"] == "FSO":
             anomalies = check_svc_network(task["Name"])
 
         print("anomalies ---> ", anomalies)
