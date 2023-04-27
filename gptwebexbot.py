@@ -518,7 +518,7 @@ def extract_cmdline(multiline_string):
 
     # regex match rules, limit to some popular commands
     regex = re.compile(
-        '(kubectl|kubeadm|calicoctl|kubelet|kubernetes-cni|etcdctl|helm|kubefed|kubectl-debug|kubectl-trace)')
+        '(kubectl|kubeadm|calicoctl|kubelet|kubernetes-cni|etcdctl|helm|kubefed|kubectl-debug|kubectl-trace|systemctl)')
 
     # Iterate through each line and return the entire line if it matches
     for line in lines:
@@ -554,14 +554,13 @@ def ask_k8s(msg):
             answer = cmd_response
         else:
             question = ('''Please express the following in {}:  '''
-                        '''This task is a bit complicated,   '''
+                        '''I did not find the answer, maybe my understanding is wrong,   '''
                         '''can you change the way you ask questions?  ''').format(language)
             answer = chat_withoutlog(question)
 
-    else:
+    elif task["Type"] == "FSO":
         anomalies = ""
-        if task["Type"] == "FSO":
-            anomalies = check_svc_network(task["Name"])
+        anomalies = check_svc_network(task["Name"])
 
         print("anomalies ---> ", anomalies)
         if anomalies:
@@ -575,6 +574,12 @@ def ask_k8s(msg):
                         '''or application level.  ''').format(language)
             print("question ---> ", question)
             answer = chat_withoutlog(question)
+
+    else:
+        question = ('''Please express the following in {}:  '''
+                    '''Sorry, I didn't get your point,  '''
+                    '''can you change the way you ask questions?  ''').format(language)
+        answer = chat_withoutlog(question)
 
     return answer
 
