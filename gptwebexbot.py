@@ -25,8 +25,9 @@ PROMPT_K8S01 = ('''I will enter a sentence, and you will do the linguistic analy
                 '''value of the Key "Type" to "FSO". '''
                 '''If you think this sentence is asking for the status of a specific Kubernetes cluster, then set  '''
                 '''the value of the key "Target" to the name of that cluster, and set the value of the  '''
-                '''key "Type" to "K8S".  If namespace is mentioned, then set the value of the key "Name" to  '''
-                '''the name of the namespace.  '''
+                '''key "Type" to "K8S".  If I explicitly request that it be in a namespace,  '''
+                '''then set the value of the key "Name" to the name of the namespace, Otherwise,  '''
+                '''set this value to 'default'.  '''
                 '''If none of the above, then output this JSON  '''
                 '''data directly without making any changes. Your MUST ONLY response the JSON data. You MUST NOT  '''
                 '''add any extra characters. Now analyze the following sentence and output the JSON data: ''')
@@ -41,10 +42,16 @@ PROMPT_K8S02 = ('''Based on your knowledge of the Flow Telemetry information for
                 '''Please answer in {} language, and try to explain more''')
 
 PROMPT_K8S03 = ('''You are now an application and I give you an administrative task below about the  '''
-                '''Kubernetes system (k8s version is 1.21, CNI is Calico with IPIP=never and SNAT disabled),  '''
-                '''you give the command line to complete that task directly and your answer must only  '''
-                '''contain ONE command line in plain text that I can execute directly without any modification.  '''
-                '''Do not use any formatting notation, just give the command line itself! '''
+                '''Kubernetes system,  you give the command line to complete that task directly.  '''
+                '''Note that this Kubernetes cluster is version 1.21, installed using kubeadm,  '''
+                '''the CNI is Calico, the IPIP tunnel setting is Never, and the SNAT feature is turned off.  '''
+                '''Use the command that best fits this cluster environment.  '''
+                '''Your answer must only contain ONE command line in plain text  '''
+                '''that I can execute directly without any modification.  '''
+                '''The commands you can use, but are not limited to:  '''
+                '''kubectl, kubeadm, calicoctl, kubelet, kubernetes-cni, etcdctl, helm, kubefed,  '''
+                '''kubectl-debug, kubectl-trace, ...etc.  '''
+                '''Do not use any formatting notation, just give the command line itself!  '''
                 '''I give the following task:  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
@@ -77,7 +84,7 @@ TE_headers = {
 
 def configbyssh(host, cmd):
     '''
-    SSHClient Testing
+    added by Weihang. SSHClient Testing
     '''
     try:
         # create sshClient obj
@@ -502,29 +509,54 @@ def check_svc_network(svc):
     return str
 
 
+def extract_cmdline(multiline_string):
+    """
+    added by Weihang
+    """
+    # cut the multiline string into a list
+    lines = multiline_string.split('\n')
+
+    # regex match rules, limit to some popular commands
+    regex = re.compile(
+        '(kubectl|kubeadm|calicoctl|kubelet|kubernetes-cni|etcdctl|helm|kubefed|kubectl-debug|kubectl-trace)')
+
+    # Iterate through each line and return the entire line if it matches
+    for line in lines:
+        if regex.search(line):
+            return line
+
+
 def ask_k8s(msg):
     """
     added by Weihang
     """
+    msg_txt = msg.text
+    if msg_txt.startswith("/k8s"):
+        msg_txt = msg_txt[len("/k8s"):]  # remove "/k8s"
     # Analyze the prompt and return task JSON data
-    prompt = PROMPT_K8S01 + msg.text
+    prompt = PROMPT_K8S01 + msg_txt
+    print(prompt)
     task = json.loads(chat_withoutlog(prompt))
     print(task)
     language = task["Language"]
 
     # ask question based on task analysis
     if task["Type"] == "K8S":
-        if task["Name"]:
-            question = PROMPT_K8S03 + "In the namespace {}, ".format(task["Name"]) + msg.text
+        if task["Name"] and task["Name"] != 'default':
+            question = PROMPT_K8S03 + "In the namespace {}, ".format(task["Name"]) + msg_txt
         else:
-            question = PROMPT_K8S03 + msg.text
+            question = PROMPT_K8S03 + msg_txt
         print("question ---> ", question)
-        k8s_cmd = chat_withoutlog(question)
+        k8s_cmd = extract_cmdline(chat_withoutlog(question))
         print(k8s_cmd)
-        if "kubectl" in k8s_cmd or "calicoctl" in k8s_cmd:
-            answer = configbyssh(SSH_HOST, k8s_cmd)
+        cmd_response = configbyssh(SSH_HOST, k8s_cmd)
+        if cmd_response:
+            answer = cmd_response
         else:
-            answer = k8s_cmd
+            question = ('''Please express the following in {}:  '''
+                        '''This task is a bit complicated,   '''
+                        '''can you change the way you ask questions?  ''').format(language)
+            answer = chat_withoutlog(question)
 
     else:
         anomalies = ""
@@ -553,7 +585,7 @@ bot.add_command("/gethelp", "please contact with xueatian@cisco.com. Do not cont
 bot.add_command("/te-listagents", "This will list the endpoint agents", list_agents)
 bot.add_command("/te-listtests", "This will list the tests", list_tests)
 bot.add_command("/te-testdetails",
-                "This will provde more information about a test with the given Test ID (e.g. /testdetails 12345)",
+                "This will provide more information about a test with the given Test ID (e.g. /testdetails 12345)",
                 test_details)
 bot.add_command("/te-listalerts", "This will list the active alerts", list_alerts)
 bot.add_command("/askai", "ask questions to chatGPT, (e.q. /askai how beautiful is the life )", ask_ChatGPT)
