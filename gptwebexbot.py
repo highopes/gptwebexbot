@@ -11,48 +11,62 @@ requests.packages.urllib3.disable_warnings()
 
 openai.api_key = OPENAI_KEY
 
-# following is the prompt for ChatGPT
-PROMPT_K8S01 = ('''I will enter a sentence, and you will do the linguistic analysis  '''
-                '''and modify the JSON data: {"Language":"", "Target":"", "Name":"", "Type":""},  '''
-                '''then return the modified JSON data to me.  '''
-                '''First determine the language used in the sentence and let the value of Key "Language"  '''
-                '''be the name of the language (type is English string). '''
-                '''If you think I have mentioned a service or microservice or micro-service in my input,  '''
-                '''then set the Value of the Key "Target" to the word "service", set the value of the Key "Name"  '''
-                '''to the service name; '''
-                ''' if you think I'm asking about the health  '''
-                '''or quality of experience of the service or microservice or micro-service, then set the  '''
-                '''value of the Key "Type" to "FSO". '''
-                '''If you think this sentence is asking for the status of a specific Kubernetes cluster, then set  '''
-                '''the value of the key "Target" to the name of that cluster, and set the value of the  '''
-                '''key "Type" to "K8S".  If I explicitly request that it be in a namespace,  '''
-                '''then set the value of the key "Name" to the name of the namespace, Otherwise,  '''
-                '''set this value to 'default'.  '''
-                '''If none of the above, then output this JSON  '''
-                '''data directly without making any changes. Your MUST ONLY response the JSON data. You MUST NOT  '''
-                '''add any extra characters. Now analyze the following sentence and output the JSON data: ''')
+# following is the function for OpenAI to select
+FUNCTIONS = [
+    {
+        "name": "k8s_status",
+        "description": "List various resources or status information about the Kubernetes cluster.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "kubernetes": {"type": "string",
+                               "description": "the name of the Kubernetes cluster or context, if not mentioned, set value to empty string"},
+                "namespace": {"type": "string",
+                              "description": "the name of the namespace, if not mentioned, set value to empty string"},
+                "service": {"type": "string",
+                            "description": "the name of the specific microservice or service, if not mentioned, set value to empty string"}
+            },
+            "required": ["language", "kubernetes", "namespace", "service"]
+        }
+    },
+    {
+        "name": "k8s_fso",
+        "description": "Request an explanation of why the service or microservice experience has deteriorated.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "kubernetes": {"type": "string",
+                               "description": "the name of the Kubernetes cluster or context, if not mentioned, set value to empty string"},
+                "namespace": {"type": "string",
+                              "description": "the name of the namespace, if not mentioned, set value to empty string"},
+                "service": {"type": "string",
+                            "description": "the name of the specific microservice or service, if not mentioned, set value to empty string"}
+            },
+            "required": ["language", "kubernetes", "namespace", "service"]
+        }
+    }
+]
 
-PROMPT_K8S02 = ('''Based on your knowledge of the Flow Telemetry information for the underlying network  '''
-                '''provided by the Cisco Nexus Insights product, and you already know that this is traffic  '''
-                '''information within the Kubernetes cluster, when there is an alert message (the alert is in  '''
-                '''JSON format) as follows: {}   Please tell me what is the anomaly of this service flow, what is  '''
-                '''the cause of the deterioration of the quality of service, and what are the possible  '''
-                '''solutions.  '''
-                '''Please start with language like this: After insight, we found network anomalies.  '''
-                '''Please answer in {} language, and try to explain more''')
+# Following is the extra prompt when call OpenAI API
+PROMPT_k8s_fso = ('''We found the following alerts in Cisco Nexus Insights '''
+                  '''with what is mentioned, please analyze the causes and suggested solutions in language {}. ''')
 
-PROMPT_K8S03 = ('''You are now an application and I give you an administrative task below about the  '''
-                '''Kubernetes system,  you give the command line to complete that task directly.  '''
-                '''Note that this Kubernetes cluster is version 1.21, installed using kubeadm,  '''
-                '''the CNI is Calico, the IPIP tunnel setting is Never, and the SNAT feature is turned off.  '''
-                '''Use the command that best fits this cluster environment.  '''
-                '''Your answer must only contain ONE command line in plain text  '''
-                '''that I can execute directly without any modification.  '''
-                '''The commands you can use, but are not limited to:  '''
-                '''kubectl, kubeadm, calicoctl, kubelet, kubernetes-cni, etcdctl, helm, kubefed,  '''
-                '''kubectl-debug, kubectl-trace, ...etc.  '''
-                '''Do not use any formatting notation, just give the command line itself!  '''
-                '''I give the following task:  ''')
+PROMPT_k8s_status = ('''You are now an application and I give you an administrative task below about the  '''
+                     '''Kubernetes system,  you give the command line to complete that task directly.  '''
+                     '''Note that this Kubernetes cluster is version 1.21, installed using kubeadm,  '''
+                     '''the CNI is Calico, the IPIP tunnel setting is Never, and the SNAT feature is turned off.  '''
+                     '''Use the command that best fits this cluster environment.  '''
+                     '''Your answer must only contain ONE command line in plain text  '''
+                     '''that I can execute directly without any modification.  '''
+                     '''The commands you can use, but are not limited to:  '''
+                     '''kubectl, kubeadm, calicoctl, kubelet, kubernetes-cni, etcdctl, helm, kubefed,  '''
+                     '''kubectl-debug, kubectl-trace, ...etc.  '''
+                     '''Do not use any formatting notation, just give the command line itself!  '''
+                     '''I give the following task:  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -173,7 +187,7 @@ def list_alerts(incoming_msg):
 
 
 # chatGPT
-def chat_withoutlog(prompt, model="gpt-3.5-turbo", max_tokens=800):
+def chat_withoutlog(prompt, model=MODEL_SPC):
     """
     add by Weihang
     """
@@ -183,7 +197,6 @@ def chat_withoutlog(prompt, model="gpt-3.5-turbo", max_tokens=800):
     response = openai.ChatCompletion.create(
         model=model,
         messages=messages,
-        max_tokens=max_tokens,
         n=1,
         stop=None,
         temperature=0.5,
@@ -195,7 +208,7 @@ def chat_withoutlog(prompt, model="gpt-3.5-turbo", max_tokens=800):
 def chatGPT_send_message(message_log):
     # Use OpenAI's ChatCompletion API to get the chatbot's response
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # The name of the OpenAI chatbot model to use
+        model=MODEL_GEN,  # The name of the OpenAI chatbot model to use
         # model="gpt-4",  # The name of the OpenAI chatbot model to use
         messages=message_log,  # The conversation history up to this point, as a list of dictionaries
         max_tokens=3800,  # The maximum number of tokens (words or subwords) in the generated response
@@ -526,6 +539,57 @@ def extract_cmdline(multiline_string):
             return line
 
 
+def k8s_status(args, text):
+    """
+    added by Weihang
+    """
+    if args["namespace"] and args["namespace"] != 'default':
+        question = PROMPT_k8s_status + "In the namespace {}, ".format(args["namespace"]) + text
+    else:
+        question = PROMPT_k8s_status + text
+    print("question ---> ", question)
+    k8s_cmd = extract_cmdline(chat_withoutlog(question))
+    print(k8s_cmd)
+    cmd_response = configbyssh(SSH_HOST, k8s_cmd)
+    if cmd_response:
+        answer = cmd_response
+    else:
+        answer = "k8s_status no answer"
+
+    print("answer --->", answer)
+    return answer
+
+
+def k8s_fso(args):
+    """
+    added by Weihang
+    """
+    anomalies = ""
+    anomalies = check_svc_network(args["service"])
+
+    print("anomalies ---> ", anomalies)
+    if anomalies:
+        question = PROMPT_k8s_fso.format(args["language"]) + '\n' + anomalies
+    else:
+        question = "k8s_fso no answer"
+
+    print("question ---> ", question)
+    return question
+
+
+def openai_call_function(messages):
+    """
+    added by Weihang
+    """
+    response = openai.ChatCompletion.create(
+        model=MODEL_SPC,
+        messages=messages,
+        functions=FUNCTIONS
+    )
+
+    return response
+
+
 def ask_k8s(msg):
     """
     added by Weihang
@@ -533,54 +597,50 @@ def ask_k8s(msg):
     msg_txt = msg.text
     if msg_txt.startswith("/k8s"):
         msg_txt = msg_txt[len("/k8s"):]  # remove "/k8s"
-    # Analyze the prompt and return task JSON data
-    prompt = PROMPT_K8S01 + msg_txt
-    print(prompt)
-    task = json.loads(chat_withoutlog(prompt))
-    print(task)
-    language = task["Language"]
 
-    # ask question based on task analysis
-    if task["Type"] == "K8S":
-        if task["Name"] and task["Name"] != 'default':
-            question = PROMPT_K8S03 + "In the namespace {}, ".format(task["Name"]) + msg_txt
-        else:
-            question = PROMPT_K8S03 + msg_txt
-        print("question ---> ", question)
-        k8s_cmd = extract_cmdline(chat_withoutlog(question))
-        print(k8s_cmd)
-        cmd_response = configbyssh(SSH_HOST, k8s_cmd)
-        if cmd_response:
-            answer = cmd_response
-        else:
-            question = ('''Please express the following in {}:  '''
+    response = openai_call_function([{"role": "user", "content": msg_txt}])
+
+    if response['choices'][0]['message'].get("function_call"):  # make sure find the proper function
+        # Output function name and arguments
+        function_name = response['choices'][0]['message']['function_call']['name']
+        args = json.loads(response['choices'][0]['message']['function_call']['arguments'])
+        print("Function Name: ", function_name)
+        print("Arguments: ", args)
+
+        # Call the corresponding function and get the result
+        if function_name == "k8s_status":
+            result = k8s_status(args, msg_txt)
+        elif function_name == "k8s_fso":
+            result = k8s_fso(args)
+
+        # Send the result back to the OpenAI model to generate the final answer
+        if result == "k8s_status no answer":
+            question = ('''Please express the following in language {}:  '''
                         '''I did not find the answer, maybe my understanding is wrong,   '''
-                        '''can you change the way you ask questions?  ''').format(language)
+                        '''can you change the way you ask questions?  ''').format(args["language"])
             answer = chat_withoutlog(question)
 
-    elif task["Type"] == "FSO":
-        anomalies = ""
-        anomalies = check_svc_network(task["Name"])
-
-        print("anomalies ---> ", anomalies)
-        if anomalies:
-            question = PROMPT_K8S02.format(anomalies, language)
-            print("question ---> ", question)
-            answer = chat_withoutlog(question)
-        else:
-            question = ('''Please express the following in {}:  '''
+        elif result == "k8s_fso no answer":
+            question = ('''Please express the following in language {}:  '''
                         '''It appears that there is nothing wrong with your underlying network and  '''
                         '''the quality of service is likely to be a failure at the host, OS level  '''
-                        '''or application level.  ''').format(language)
-            print("question ---> ", question)
+                        '''or application level.  ''').format(args["language"])
             answer = chat_withoutlog(question)
 
-    else:
-        question = ('''Please express the following in {}:  '''
-                    '''Sorry, I didn't get your point,  '''
-                    '''can you change the way you ask questions?  ''').format(language)
-        answer = chat_withoutlog(question)
+        else:  # function returns a meaningful response, then create the final answer
+            response = openai_call_function([
+                {"role": "user", "content": msg_txt},
+                {"role": "assistant", "content": None,
+                 "function_call": {"name": function_name, "arguments": json.dumps(args)}},
+                {"role": "function", "name": function_name, "content": result},
+            ])
+            # Output final normal answer
+            answer = response['choices'][0]['message']['content']
 
+    else:  # no function was selected, returns normal answer
+        answer = response['choices'][0]['message']['content']
+
+    print("Final Answer: ", answer)
     return answer
 
 
