@@ -52,8 +52,8 @@ FUNCTIONS = [
 ]
 
 # Following is the extra prompt when call OpenAI API
-PROMPT_k8s_fso = ('''We found the following alerts in Cisco Nexus Insights '''
-                  '''with what is mentioned, please analyze the causes and suggested solutions in language {}. ''')
+PROMPT_k8s_fso = ('''\nThe following is the information I obtained from the underline network,  '''
+                  '''please answer the question based on this information: \n  ''')
 
 PROMPT_k8s_status = ('''You are now an application and I give you an administrative task below about the  '''
                      '''Kubernetes system,  you give the command line to complete that task directly.  '''
@@ -67,6 +67,9 @@ PROMPT_k8s_status = ('''You are now an application and I give you an administrat
                      '''kubectl-debug, kubectl-trace, ...etc.  '''
                      '''Do not use any formatting notation, just give the command line itself!  '''
                      '''I give the following task:  ''')
+
+PROMPT_k8s_status_prefix = ('''\nThe following is the information I obtained from the target system,  '''
+                            '''please answer the question based on this information: \n  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -543,7 +546,7 @@ def k8s_status(args, text):
     """
     added by Weihang
     """
-    if args["namespace"] and args["namespace"] != 'default':
+    if args.get("namespace") and args.get("namespace") != 'default':
         question = PROMPT_k8s_status + "In the namespace {}, ".format(args["namespace"]) + text
     else:
         question = PROMPT_k8s_status + text
@@ -554,10 +557,10 @@ def k8s_status(args, text):
     if cmd_response:
         answer = cmd_response
     else:
-        answer = "k8s_status no answer"
+        answer = "information not found"
 
     print("answer --->", answer)
-    return answer
+    return PROMPT_k8s_status_prefix + answer
 
 
 def k8s_fso(args):
@@ -565,16 +568,17 @@ def k8s_fso(args):
     added by Weihang
     """
     anomalies = ""
-    anomalies = check_svc_network(args["service"])
+    if args.get("service"):
+        anomalies = check_svc_network(args["service"])
 
     print("anomalies ---> ", anomalies)
     if anomalies:
-        question = PROMPT_k8s_fso.format(args["language"]) + '\n' + anomalies
+        answer = anomalies
     else:
-        question = "k8s_fso no answer"
+        answer = "information not found"
 
-    print("question ---> ", question)
-    return question
+    print("answer --->", answer)
+    return PROMPT_k8s_fso + answer
 
 
 def openai_call_function(messages):
@@ -614,31 +618,15 @@ def ask_k8s(msg):
             result = k8s_fso(args)
 
         # Send the result back to the OpenAI model to generate the final answer
-        if result == "k8s_status no answer":
-            question = ('''Please express the following in language {}:  '''
-                        '''I did not find the answer, maybe my understanding is wrong,   '''
-                        '''can you change the way you ask questions?  ''').format(args["language"])
-            answer = chat_withoutlog(question)
+        response = openai_call_function([
+            {"role": "user", "content": msg_txt},
+            {"role": "assistant", "content": None,
+             "function_call": {"name": function_name, "arguments": json.dumps(args)}},
+            {"role": "function", "name": function_name, "content": result},
+        ])
 
-        elif result == "k8s_fso no answer":
-            question = ('''Please express the following in language {}:  '''
-                        '''It appears that there is nothing wrong with your underlying network and  '''
-                        '''the quality of service is likely to be a failure at the host, OS level  '''
-                        '''or application level.  ''').format(args["language"])
-            answer = chat_withoutlog(question)
-
-        else:  # function returns a meaningful response, then create the final answer
-            response = openai_call_function([
-                {"role": "user", "content": msg_txt},
-                {"role": "assistant", "content": None,
-                 "function_call": {"name": function_name, "arguments": json.dumps(args)}},
-                {"role": "function", "name": function_name, "content": result},
-            ])
-            # Output final normal answer
-            answer = response['choices'][0]['message']['content']
-
-    else:  # no function was selected, returns normal answer
-        answer = response['choices'][0]['message']['content']
+    # Output final answer
+    answer = response['choices'][0]['message']['content']
 
     print("Final Answer: ", answer)
     return answer
