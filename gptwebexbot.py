@@ -1,5 +1,12 @@
 from webexteamsbot import TeamsBot
-from my_py.gpt_webex.credentials import *
+from gpt_webex.credentials import *
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.document_loaders import TextLoader
+from langchain.text_splitter import MarkdownHeaderTextSplitter
+from langchain.vectorstores import Chroma
+from langchain.chains import RetrievalQA
+from langchain import OpenAI
+import os
 import requests
 import logging
 import json
@@ -15,7 +22,7 @@ openai.api_key = OPENAI_KEY
 FUNCTIONS = [
     {
         "name": "k8s_status",
-        "description": "List various resources or status information about the Kubernetes cluster.",
+        "description": "Explicitly ask for the status of Kubernetes and the resource component, or request that a new resource be created",
         "parameters": {
             "type": "object",
             "properties": {
@@ -33,7 +40,7 @@ FUNCTIONS = [
     },
     {
         "name": "k8s_fso",
-        "description": "Request an explanation of why the service or microservice experience has deteriorated.",
+        "description": "Request an explanation of why the service or microservice's user experience has deteriorated.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -48,11 +55,39 @@ FUNCTIONS = [
             },
             "required": ["language", "kubernetes", "namespace", "service"]
         }
+    },
+    {
+        "name": "personal_cv",
+        "description": "Handle when a question is asked about a character that cannot be answered by the AI model's existing knowledge.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "name": {"type": "string",
+                         "description": "the name of the person asked about"}
+            },
+            "required": ["language", "name"]
+        },
+    },
+    {
+        "name": "aci_knowledge",
+        "description": "Handle technical knowledge related to Cisco ACI (Application Centric Infrastructure).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "type": {"type": "string",
+                         "description": "Types of Cisco ACI technologies asked about, e.g. scalability"}
+            },
+            "required": ["language", "type"]
+        },
     }
 ]
 
 # Following is the extra prompt when call OpenAI API
-PROMPT_k8s_fso = ('''\nThe following is the information I obtained from the underline network,  '''
+PROMPT_k8s_fso = ('''\nThe following is the information I obtained from the underlying network,  '''
                   '''please answer the question based on this information: \n  ''')
 
 PROMPT_k8s_status = ('''You are now an application and I give you an administrative task below about the  '''
@@ -97,6 +132,44 @@ TE_headers = {
     "Accept": "application/json",
     "Content-Type": "application/json"
 }
+
+try:
+    """
+    added by Weihang: create Q&A Object qa to answer question with knowledge bases
+    """
+    current_path = os.path.dirname(os.path.abspath(__file__))
+    os.environ['OPENAI_API_KEY'] = OPENAI_KEY
+    llm = OpenAI(temperature=0)
+
+    loader = TextLoader(os.path.join(
+        current_path, KNOWLEDGE_BASE), encoding="utf-8")
+    documents = loader.load()[0].page_content  # Load markdown in plain text
+    # split the text
+    headers_to_split_on = [
+        ("#", "Header 1"),
+        ("##", "Header 2"),
+        ("###", "Header 3"),
+    ]
+    text_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=headers_to_split_on)
+    texts = text_splitter.split_text(documents)
+
+    # Embeddings
+    embeddings = OpenAIEmbeddings()
+
+    # put into vector store Chroma and leverage its native retrieve method instead of LLM's self-querying
+    docSearch = Chroma.from_documents(texts, embeddings)
+
+    # Build retrieve mode
+    retriever = docSearch.as_retriever(
+        search_type="similarity_score_threshold", search_kwargs={"score_threshold": .5})
+
+    # Build a Q&A chain with LangChain
+    qa = RetrievalQA.from_chain_type(
+        llm, chain_type="stuff", retriever=retriever)
+    print(f"Knowledge base {KNOWLEDGE_BASE} has been successfully loaded.")
+except:
+    print("Knowledge base loading failed.")
 
 
 def configbyssh(host, cmd):
@@ -146,7 +219,8 @@ def list_agents(incoming_msg):
     res = requests.get(url=base_url + "endpoint-agents", headers=TE_headers)
     data = json.loads(res.text)
     for agent in data['endpointAgents']:
-        message = message + (f"Agent Name: {agent['agentName']} - Type: {agent['agentType']}<br />")
+        message = message + \
+            (f"Agent Name: {agent['agentName']} - Type: {agent['agentType']}<br />")
 
     return message
 
@@ -156,7 +230,8 @@ def list_tests(incoming_msg):
     res = requests.get(url=base_url + "tests", headers=TE_headers)
     data = json.loads(res.text)
     for test in data['test']:
-        message = message + (f"Test ID: {test['testId']} - Type: {test['type']} - Test Name: {test['testName']}<br />")
+        message = message + \
+            (f"Test ID: {test['testId']} - Type: {test['type']} - Test Name: {test['testName']}<br />")
 
     return message
 
@@ -213,10 +288,14 @@ def chatGPT_send_message(message_log):
     response = openai.ChatCompletion.create(
         model=MODEL_GEN,  # The name of the OpenAI chatbot model to use
         # model="gpt-4",  # The name of the OpenAI chatbot model to use
-        messages=message_log,  # The conversation history up to this point, as a list of dictionaries
-        max_tokens=3800,  # The maximum number of tokens (words or subwords) in the generated response
-        stop=None,  # The stopping sequence for the generated response, if any (not used here)
-        temperature=0.7,  # The "creativity" of the generated response (higher temperature = more creative)
+        # The conversation history up to this point, as a list of dictionaries
+        messages=message_log,
+        # The maximum number of tokens (words or subwords) in the generated response
+        max_tokens=3800,
+        # The stopping sequence for the generated response, if any (not used here)
+        stop=None,
+        # The "creativity" of the generated response (higher temperature = more creative)
+        temperature=0.7,
     )
 
     # Find the first response from the chatbot that has text in it (some responses may not have text)
@@ -239,7 +318,8 @@ def chatGPT_main(questions):
     message_log.append({"role": "user", "content": user_input})
 
     # Add a message from the chatbot to the conversation history
-    message_log.append({"role": "assistant", "content": "You are a helpful assistant."})
+    message_log.append(
+        {"role": "assistant", "content": "You are a helpful assistant."})
 
     # Send the conversation history to the chatbot and get its response
     response = chatGPT_send_message(message_log)
@@ -354,7 +434,8 @@ def ask_reason(number):
     message_log.append({"role": "user", "content": user_input})
 
     # Add a message from the chatbot to the conversation history
-    message_log.append({"role": "assistant", "content": "You are a helpful assistant."})
+    message_log.append(
+        {"role": "assistant", "content": "You are a helpful assistant."})
 
     # Send the conversation history to the chatbot and get its response
     response = chatGPT_send_message(message_log)
@@ -408,7 +489,8 @@ def ask_guide(number2):
     message_log.append({"role": "user", "content": user_input})
 
     # Add a message from the chatbot to the conversation history
-    message_log.append({"role": "assistant", "content": "You are a helpful assistant."})
+    message_log.append(
+        {"role": "assistant", "content": "You are a helpful assistant."})
 
     # Send the conversation history to the chatbot and get its response
     response = chatGPT_send_message(message_log)
@@ -461,7 +543,8 @@ def ask_guide_chinese(number2):
     message_log.append({"role": "user", "content": user_input})
 
     # Add a message from the chatbot to the conversation history
-    message_log.append({"role": "assistant", "content": "You are a helpful assistant."})
+    message_log.append(
+        {"role": "assistant", "content": "You are a helpful assistant."})
 
     # Send the conversation history to the chatbot and get its response
     response = chatGPT_send_message(message_log)
@@ -547,7 +630,8 @@ def k8s_status(args, text):
     added by Weihang
     """
     if args.get("namespace") and args.get("namespace") != 'default':
-        question = PROMPT_k8s_status + "In the namespace {}, ".format(args["namespace"]) + text
+        question = PROMPT_k8s_status + \
+            "In the namespace {}, ".format(args["namespace"]) + text
     else:
         question = PROMPT_k8s_status + text
     print("question ---> ", question)
@@ -594,20 +678,24 @@ def openai_call_function(messages):
     return response
 
 
-def ask_k8s(msg):
+def ask_kb(msg):
     """
-    added by Weihang
+    added by Weihang: demostrate function calling without vector embedding
     """
+    answer = ""
     msg_txt = msg.text
-    if msg_txt.startswith("/k8s"):
-        msg_txt = msg_txt[len("/k8s"):]  # remove "/k8s"
+    if msg_txt.startswith("/ask"):
+        msg_txt = msg_txt[len("/ask"):]  # remove "/ask"
 
+    # Function calling analytics
     response = openai_call_function([{"role": "user", "content": msg_txt}])
 
-    if response['choices'][0]['message'].get("function_call"):  # make sure find the proper function
+    # if find the proper function, then...
+    if response['choices'][0]['message'].get("function_call"):
         # Output function name and arguments
         function_name = response['choices'][0]['message']['function_call']['name']
-        args = json.loads(response['choices'][0]['message']['function_call']['arguments'])
+        args = json.loads(response['choices'][0]
+                          ['message']['function_call']['arguments'])
         print("Function Name: ", function_name)
         print("Arguments: ", args)
 
@@ -616,33 +704,48 @@ def ask_k8s(msg):
             result = k8s_status(args, msg_txt)
         elif function_name == "k8s_fso":
             result = k8s_fso(args)
+        elif function_name == "personal_cv":
+            answer = qa.run(
+                msg_txt + "(Please answer in the language of the question)")
+        elif function_name == "aci_knowledge":
+            answer = qa.run(
+                msg_txt + "(Please answer in the language of the question)")
 
-        # Send the result back to the OpenAI model to generate the final answer
-        response = openai_call_function([
-            {"role": "user", "content": msg_txt},
-            {"role": "assistant", "content": None,
-             "function_call": {"name": function_name, "arguments": json.dumps(args)}},
-            {"role": "function", "name": function_name, "content": result},
-        ])
+        # if not answered, send the result back to the OpenAI model to generate the final answer
+        if not answer:
+            response = openai_call_function([
+                {"role": "user", "content": msg_txt},
+                {"role": "assistant", "content": None,
+                 "function_call": {"name": function_name, "arguments": json.dumps(args)}},
+                {"role": "function", "name": function_name, "content": result},
+            ])
+            answer = response['choices'][0]['message']['content']
 
-    # Output final answer
-    answer = response['choices'][0]['message']['content']
+    else:
+        # if we didn't find the proper function, response normally
+        answer = response['choices'][0]['message']['content']
 
     print("Final Answer: ", answer)
     return answer
 
 
 # Add new commands to the box.
-bot.add_command("/SDWAN-listalarms", "This will list the active alarms from SDWAN Vmanage", vManage_alarms)
-bot.add_command("/gethelp", "please contact with xueatian@cisco.com. Do not contact hangwe@cisco.com :)", for_help)
-bot.add_command("/te-listagents", "This will list the endpoint agents", list_agents)
+bot.add_command("/SDWAN-listalarms",
+                "This will list the active alarms from SDWAN Vmanage", vManage_alarms)
+bot.add_command(
+    "/gethelp", "please contact with xueatian@cisco.com. Do not contact hangwe@cisco.com :)", for_help)
+bot.add_command("/te-listagents",
+                "This will list the endpoint agents", list_agents)
 bot.add_command("/te-listtests", "This will list the tests", list_tests)
 bot.add_command("/te-testdetails",
                 "This will provide more information about a test with the given Test ID (e.g. /testdetails 12345)",
                 test_details)
-bot.add_command("/te-listalerts", "This will list the active alerts", list_alerts)
-bot.add_command("/askai", "ask questions to chatGPT, (e.q. /askai how beautiful is the life )", ask_ChatGPT)
-bot.add_command("/dnac-listissues", "This will list the active issues from DNAC", get_issue_list_from_dnac)
+bot.add_command("/te-listalerts",
+                "This will list the active alerts", list_alerts)
+bot.add_command(
+    "/ai", "ask questions to chatGPT, (e.q. /ai how beautiful is the life )", ask_ChatGPT)
+bot.add_command("/dnac-listissues",
+                "This will list the active issues from DNAC", get_issue_list_from_dnac)
 bot.add_command("/ask-reason",
                 "ask the detail description on the DNAC issue with chatGPT,input the issue number (e.q. /ask-reason  1 )",
                 ask_ChatGPT_reason)
@@ -654,9 +757,9 @@ bot.add_command("/ask-chinese-guide",
                 ask_ChatGPT_guide_chinese)
 bot.add_command("/secure-listincidents", "This will list the active security incidents from SecureX platform ",
                 securex_alarms)
-bot.add_command("/k8s",
-                "Help improve your Kubernetes network (e.g. /k8s please list all pods' IP addresses of the movies microservice in the Namespace smm-demo in the Kubernetes cluster; /k8s 微服务movies的质量变差了, 网络出问题了吗; /k8s 帮我在Kubernetes集群创建一个名为test001的命名空间） ",
-                ask_k8s)
+bot.add_command("/ask",
+                "Ask the AI any question and the AI will answer it using the local knowledge base. (e.g. /ask 微服务movies的质量变差了, 网络出问题了吗; /ask 帮我在Kubernetes集群创建一个名为test001的命名空间; /ask Introducing Wei Hang from Cisco. ） ",
+                ask_kb)
 
 bot.remove_command("/echo")
 
