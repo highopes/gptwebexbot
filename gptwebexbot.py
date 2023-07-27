@@ -5,7 +5,7 @@ from langchain.document_loaders import TextLoader
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 from langchain.vectorstores import Chroma
 from langchain.chains import RetrievalQA
-from langchain import OpenAI
+from langchain.chat_models import ChatOpenAI
 import os
 import requests
 import logging
@@ -139,7 +139,7 @@ try:
     """
     current_path = os.path.dirname(os.path.abspath(__file__))
     os.environ['OPENAI_API_KEY'] = OPENAI_KEY
-    llm = OpenAI(temperature=0)
+    llm = ChatOpenAI(model=MODEL_LANGCHAIN, temperature=0)
 
     loader = TextLoader(os.path.join(
         current_path, KNOWLEDGE_BASE), encoding="utf-8")
