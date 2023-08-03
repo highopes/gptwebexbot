@@ -706,10 +706,10 @@ def ask_kb(msg):
             result = k8s_fso(args)
         elif function_name == "personal_cv":
             answer = qa.run(
-                msg_txt + "(Please answer in the language of the question)")
+                msg_txt + "\nPlease answer in the language: " + args["language"])
         elif function_name == "aci_knowledge":
             answer = qa.run(
-                msg_txt + "(Please answer in the language of the question)")
+                msg_txt + "\nPlease answer in the language: " + args["language"])
 
         # if not answered, send the result back to the OpenAI model to generate the final answer
         if not answer:
