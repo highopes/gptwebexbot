@@ -83,6 +83,20 @@ FUNCTIONS = [
             },
             "required": ["language", "type"]
         },
+    },
+    {
+        "name": "app_status",
+        "description": "Handle the status of the applications in question, such as health.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "type": {"type": "string",
+                         "description": "Types of queries to the applications, e.g. health, namelist"}
+            },
+            "required": ["language", "type"]
+        },
     }
 ]
 
@@ -105,6 +119,9 @@ PROMPT_k8s_status = ('''You are now an application and I give you an administrat
 
 PROMPT_k8s_status_prefix = ('''\nThe following is the information I obtained from the target system,  '''
                             '''please answer the question based on this information: \n  ''')
+
+PROMPT_app_status = ('''\nThe following is the information I obtained from the Appliction Performance Monitoring systems,  '''
+                     '''please answer the question based on this information: \n  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -267,7 +284,7 @@ def list_alerts(incoming_msg):
 # chatGPT
 def chat_withoutlog(prompt, model=MODEL_SPC):
     """
-    add by Weihang
+    add by Weihang. Call OpenAI API. Only used to produce CLI or API.
     """
     messages = [{"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt}]
@@ -277,7 +294,7 @@ def chat_withoutlog(prompt, model=MODEL_SPC):
         messages=messages,
         n=1,
         stop=None,
-        temperature=0.5,
+        temperature=0,
     )
 
     return response.choices[0].message['content']
@@ -665,6 +682,24 @@ def k8s_fso(args):
     return PROMPT_k8s_fso + answer
 
 
+def get_app_status():
+    """
+    added by Weihang
+    """
+    # ToDo:  http://URI/controller/rest/applications?output=JSON
+
+    return app_health
+
+
+def app_status(args):
+    """
+    added by Weihang
+    """
+    answer = get_app_status()
+
+    return PROMPT_app_status + answer
+
+
 def openai_call_function(messages):
     """
     added by Weihang
@@ -680,7 +715,7 @@ def openai_call_function(messages):
 
 def ask_kb(msg):
     """
-    added by Weihang: demostrate function calling without vector embedding
+    added by Weihang: demostrate function calling and function calling with LangChain
     """
     answer = ""
     msg_txt = msg.text
@@ -699,11 +734,13 @@ def ask_kb(msg):
         print("Function Name: ", function_name)
         print("Arguments: ", args)
 
-        # Call the corresponding function and get the result
+        # Call the corresponding function and get the intermediate result (from function calling) or final answer (from LangChain)
         if function_name == "k8s_status":
             result = k8s_status(args, msg_txt)
         elif function_name == "k8s_fso":
             result = k8s_fso(args)
+        elif function_name == "app_status":
+            result = app_status(args)
         elif function_name == "personal_cv":
             answer = qa.run(
                 msg_txt + "\nPlease answer in the language: " + args["language"])
@@ -711,10 +748,11 @@ def ask_kb(msg):
             answer = qa.run(
                 msg_txt + "\nPlease answer in the language: " + args["language"])
 
-        # if not answered, send the result back to the OpenAI model to generate the final answer
+        # if no final answer, send the intermediate result back to the OpenAI model to generate the final answer
         if not answer:
             response = openai_call_function([
-                {"role": "user", "content": msg_txt},
+                {"role": "user", "content": msg_txt +
+                    "\nPlease answer in the language: " + args["language"]},
                 {"role": "assistant", "content": None,
                  "function_call": {"name": function_name, "arguments": json.dumps(args)}},
                 {"role": "function", "name": function_name, "content": result},
