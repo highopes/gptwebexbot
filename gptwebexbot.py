@@ -101,7 +101,7 @@ FUNCTIONS = [
 ]
 
 # Following is the extra prompt when call OpenAI API
-PROMPT_k8s_fso = ('''\nThe following is the information I obtained from the underlying network,  '''
+PROMPT_k8s_fso = ('''\nThe following is the information I obtained from the system,  '''
                   '''please answer the question based on this information: \n  ''')
 
 PROMPT_k8s_status = ('''You are now an application and I give you an administrative task below about the  '''
@@ -625,6 +625,33 @@ def check_svc_network(svc):
     return str
 
 
+def get_app_snapshot(svc):
+    """
+    added by Weihang
+    """
+    # ToDo: form snapshot URL
+
+    return app_snapshot_url
+
+
+def check_svc_app(svc):
+    """
+    added by Weihang
+    """
+    health = "NORMAL"
+    health_data = json.loads(get_app_status())
+
+    for item in health_data:
+        if item['name'] == svc:
+            health = item['healthStatus']
+
+    snapshot = ""
+    if health != "NORMAL":
+        snapshot = get_app_snapshot(svc)
+
+    return snapshot
+
+
 def extract_cmdline(multiline_string):
     """
     added by Weihang
@@ -668,15 +695,22 @@ def k8s_fso(args):
     """
     added by Weihang
     """
-    anomalies = ""
+    net_anomalies = ""
+    app_anomalies = ""
     if args.get("service"):
-        anomalies = check_svc_network(args["service"])
+        net_anomalies = check_svc_network(args["service"])
+        app_anomalies = check_svc_app(args["service"])
 
-    print("anomalies ---> ", anomalies)
-    if anomalies:
-        answer = anomalies
-    else:
-        answer = "information not found"
+    print("network anomalies ---> ", net_anomalies)
+    print("application snapshot URL if has anomalies --->", app_anomalies)
+
+    answer = ""
+    if net_anomalies:
+        answer += "\nThe following problem with the underlying network was discovered:\n" + net_anomalies
+    if app_anomalies:
+        answer += "\nAn application issue was found and the URL link to a snapshot of the issue is below, which can be clicked on in order to discover the issue for yourself:\n" + app_anomalies
+    if not answer:
+        answer = "No valuable information was returned"
 
     print("answer --->", answer)
     return PROMPT_k8s_fso + answer
