@@ -58,7 +58,7 @@ FUNCTIONS = [
     },
     {
         "name": "personal_cv",
-        "description": "Handle when a question is asked about a character that cannot be answered by the AI model's existing knowledge.",
+        "description": "Inquire about the biographies of non-public figures, or explicitly state that the local knowledge base is to be utilized to answer the question",
         "parameters": {
             "type": "object",
             "properties": {
@@ -97,6 +97,20 @@ FUNCTIONS = [
             },
             "required": ["language", "type"]
         },
+    },
+    {
+        "name": "roce_performance",
+        "description": "Handle issues related to the performance, efficiency and quality of service of AI networks, storage networks or other networks using RoCE technology.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "type": {"type": "string",
+                         "description": "Type of network inquired about, e.g. AI, storage, RoCE"}
+            },
+            "required": ["language", "type"]
+        },
     }
 ]
 
@@ -122,6 +136,9 @@ PROMPT_k8s_status_prefix = ('''\nThe following is the information I obtained fro
 
 PROMPT_app_status = ('''\nThe following is the information I obtained from the Appliction Performance Monitoring systems,  '''
                      '''please answer the question based on this information: \n  ''')
+
+PROMPT_roce_performance = ('''\nPlease give the root cause analysis of the current network problem based on the RDMA over Converged Ethernet (RoCE)  '''
+                           ''' real-time traffic status data provided below and the diagnostic logic provided below.\n  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -734,6 +751,34 @@ def app_status(args):
     return PROMPT_app_status + answer
 
 
+def get_roce_data():
+    """
+    added by Weihang
+    """
+    # ToDo:  fetch PFC/ECN and congestion data from Cisco NDI
+
+    return roce_data
+
+
+def get_cot_roce():
+    """
+    added by Weihang
+    """
+    # ToDo:  fetch chain of thinking from local knowledge base
+
+    return cot_roce
+
+
+def roce_performance(args):
+    """
+    added by Weihang
+    """
+    data = "The data currently acquired is:\n" + get_roce_data()
+    cot = "The diagnostic logic is represented in JSON as:\n" + get_cot_roce()
+
+    return PROMPT_roce_performance + data + cot
+
+
 def openai_call_function(messages):
     """
     added by Weihang
@@ -775,6 +820,8 @@ def ask_kb(msg):
             result = k8s_fso(args)
         elif function_name == "app_status":
             result = app_status(args)
+        elif function_name == "roce_performance":
+            result = roce_performance(args)
         elif function_name == "personal_cv":
             answer = qa.run(
                 msg_txt + "\nPlease answer in the language: " + args["language"])
