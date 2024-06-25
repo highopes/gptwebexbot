@@ -58,14 +58,14 @@ FUNCTIONS = [
     },
     {
         "name": "personal_cv",
-        "description": "Inquire about the biographies of non-public figures, or explicitly state that the local knowledge base is to be utilized to answer the question",
+        "description": "Inquire about the biographies of non-public figures, or when the question asks to look in the local knowledge base",
         "parameters": {
             "type": "object",
             "properties": {
                 "language": {"type": "string",
                              "description": "the language of the question"},
                 "name": {"type": "string",
-                         "description": "the name of the person asked about"}
+                         "description": "the name of the person or the thing asked about"}
             },
             "required": ["language", "name"]
         },
@@ -111,6 +111,34 @@ FUNCTIONS = [
             },
             "required": ["language", "type"]
         },
+    },
+    {
+        "name": "tetragon_policy",
+        "description": "Requests the Tetragon's policy configurations, or directly requests some kind of observation or enforcement in the OS kernel.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "type": {"type": "string",
+                         "description": "Type of request, observation or enforcement"}
+            },
+            "required": ["language", "type"]
+        },
+    },
+    {
+        "name": "to_be_or_not_to_be",
+        "description": "This function is executed when the user explicitly responds yes or no to indicate whether or not to perform an action.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "type": {"type": "string",
+                         "description": "True if the action is allowed, False otherwise."}
+            },
+            "required": ["language", "type"]
+        },
     }
 ]
 
@@ -139,6 +167,10 @@ PROMPT_app_status = ('''\nThe following is the information I obtained from the A
 
 PROMPT_roce_performance = ('''\nPlease give the root cause analysis of the current network problem based on the RDMA over Converged Ethernet (RoCE)  '''
                            ''' real-time traffic status data provided below and the diagnostic logic provided below.\n  ''')
+
+PROMPT_tetragon_policy = ('''\nPlease generate a TracingPolicy for ISOVALENT Tetragon according to the following requirements and sample configuration,  '''
+                           ''' and after exporting the configuration, ask the user if it is possible to execute this configuration, the requirements  '''
+                           ''' and sample configuration are as follows: \n  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -779,6 +811,23 @@ def roce_performance(args):
     return PROMPT_roce_performance + data + cot
 
 
+def to_be_or_not_to_be(args):
+    """
+    added by Weihang
+    """
+    lang = args["language"]
+    prompt = f"Please translate the following into {lang}, your response will only be the result of the translation and nothing else: \n"
+    print(prompt)
+    answer = ""
+    if args.get("type"):
+        if args["type"].lower() == "true":
+            # To-Do: Execute the first task in the task queue
+            answer = chatGPT_main(prompt + "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time.")
+        else:
+            answer = chatGPT_main(prompt + "Okay. No operations were performed.")
+   
+    return answer
+
 def openai_call_function(messages):
     """
     added by Weihang
@@ -828,6 +877,11 @@ def ask_kb(msg):
         elif function_name == "aci_knowledge":
             answer = qa.run(
                 msg_txt + "\nPlease answer in the language: " + args["language"])
+        elif function_name == "tetragon_policy":
+            answer = qa.run(
+                PROMPT_tetragon_policy + msg_txt + "\nPlease answer in the language: " + args["language"])
+        elif function_name == "to_be_or_not_to_be":
+            answer = to_be_or_not_to_be(args)
 
         # if no final answer, send the intermediate result back to the OpenAI model to generate the final answer
         if not answer:
