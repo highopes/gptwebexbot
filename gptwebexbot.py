@@ -169,8 +169,8 @@ PROMPT_roce_performance = ('''\nPlease give the root cause analysis of the curre
                            ''' real-time traffic status data provided below and the diagnostic logic provided below.\n  ''')
 
 PROMPT_tetragon_policy = ('''\nPlease generate a TracingPolicy for ISOVALENT Tetragon according to the following requirements and sample configuration,  '''
-                           ''' and after exporting the configuration, ask the user if it is possible to execute this configuration, the requirements  '''
-                           ''' and sample configuration are as follows: \n  ''')
+                          ''' and after exporting the configuration, ask the user if it is possible to execute this configuration, the requirements  '''
+                          ''' and sample configuration are as follows: \n  ''')
 
 base_url = "https://api.thousandeyes.com/v6/"
 
@@ -207,8 +207,25 @@ try:
     os.environ['OPENAI_API_KEY'] = OPENAI_KEY
     llm = ChatOpenAI(model=MODEL_LANGCHAIN, temperature=0)
 
-    loader = TextLoader(os.path.join(
-        current_path, KNOWLEDGE_BASE), encoding="utf-8")
+    # load knowledge base
+    # loader = TextLoader(os.path.join(current_path, KNOWLEDGE_BASE), encoding="utf-8")
+    if KNOWLEDGE_BASE.startswith("http"):
+        # access from remote
+        response = requests.get(KNOWLEDGE_BASE)
+        response.raise_for_status()  # Ensure the request is successful
+
+        # Save content to a temporary file
+        temp_file_path = "temp_knowledge_base.txt"
+        with open(temp_file_path, "w", encoding="utf-8") as temp_file:
+            temp_file.write(response.text)
+
+        # loading temporary files with TextLoader
+        loader = TextLoader(temp_file_path, encoding="utf-8")
+    else:
+        # Load from local current directory
+        loader = TextLoader(os.path.join(
+            current_path, KNOWLEDGE_BASE), encoding="utf-8")
+
     documents = loader.load()[0].page_content  # Load markdown in plain text
     # split the text
     headers_to_split_on = [
@@ -822,11 +839,14 @@ def to_be_or_not_to_be(args):
     if args.get("type"):
         if args["type"].lower() == "true":
             # To-Do: Execute the first task in the task queue
-            answer = chatGPT_main(prompt + "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time.")
+            answer = chatGPT_main(
+                prompt + "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time.")
         else:
-            answer = chatGPT_main(prompt + "Okay. No operations were performed.")
-   
+            answer = chatGPT_main(
+                prompt + "Okay. No operations were performed.")
+
     return answer
+
 
 def openai_call_function(messages):
     """
@@ -849,6 +869,17 @@ def ask_kb(msg):
     msg_txt = msg.text
     if msg_txt.startswith("/ask"):
         msg_txt = msg_txt[len("/ask"):]  # remove "/ask"
+
+    msg_txt = msg_txt.lstrip()  # Remove spaces from the front of the string
+
+    # for demo only
+    if msg_txt.lower() == "yes" or msg_txt.lower() == "ok":
+        # To-Do: Execute the first task in the task queue
+        return "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time."
+    if msg_txt == "好的" or msg_txt == "好" or msg_txt == "可以" or msg_txt == "请执行" or msg_txt == "可以执行" or msg_txt == "执行":
+        return "操作已成功执行。请查看仪表板上的效果，任何告警都将同时通过仪表板、电子邮件和短信通知。"
+    if msg_txt.lower() == "no" or msg_txt.lower() == "cancel":
+        return "Okay. No operations were performed."
 
     # Function calling analytics
     response = openai_call_function([{"role": "user", "content": msg_txt}])
