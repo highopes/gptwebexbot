@@ -57,6 +57,24 @@ FUNCTIONS = [
         }
     },
     {
+        "name": "k8s_underlying",
+        "description": "Demonstrate the underlying network communication between two microservices/pods/containers on Kubernetes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "language": {"type": "string",
+                             "description": "the language of the question"},
+                "kubernetes": {"type": "string",
+                               "description": "the name of the Kubernetes cluster or context, if not mentioned, set value to empty string"},
+                "microservice1": {"type": "string",
+                                  "description": "the name of the first mentioned microservice/pod/container"},
+                "microservice2": {"type": "string",
+                                  "description": "the name of the second mentioned microservice/pod/container"}
+            },
+            "required": ["language", "kubernetes", "microservice1", "microservice2"]
+        }
+    },
+    {
         "name": "personal_cv",
         "description": "Inquire about the biographies of non-public figures, or when the question asks to look in the local knowledge base",
         "parameters": {
@@ -145,6 +163,10 @@ FUNCTIONS = [
 # Following is the extra prompt when call OpenAI API
 PROMPT_k8s_fso = ('''\nThe following is the information I obtained from the system,  '''
                   '''please answer the question based on this information: \n  ''')
+
+PROMPT_k8s_underlying = ('''\nBelow is the information provided by the underlying network monitoring tool,  '''
+                         '''please answer the question based on this information. In your answer, please highlight  '''
+                         '''the provided URL links and filter strings in Markdown format for easy identification.  \n  ''')
 
 PROMPT_k8s_status = ('''You are now an application and I give you an administrative task below about the  '''
                      '''Kubernetes system,  you give the command line to complete that task directly.  '''
@@ -782,6 +804,26 @@ def k8s_fso(args):
     return PROMPT_k8s_fso + answer
 
 
+def get_underlying_network(cluster, svc1, svc2):
+    """
+    added by Weihang
+    """
+    # ToDo: get the JSON response from underlying network monitoring systems
+
+    return underlying_network_monitoring_data
+
+
+def k8s_underlying(args):
+    """
+    added by Weihang
+    """
+    answer = get_underlying_network(
+        args["kubernetes"], args["microservice1"], args["microservice2"])
+
+    print("answer --->", answer)
+    return PROMPT_k8s_underlying + answer
+
+
 def get_app_status():
     """
     added by Weihang
@@ -848,6 +890,27 @@ def to_be_or_not_to_be(args):
     return answer
 
 
+def first_action(language):
+    """
+    added by Weihang
+    """
+    # To-Do: get the first task from the task queue
+    # if successfuly get the task
+    result = configbyssh(SSH_HOST, AUTOACTION_STRING)
+    first_line = result.splitlines()[0] if result else ""
+
+    if "created" in first_line or "configured" in first_line:
+        if language == "en":
+            return "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time."
+        elif language == "cn":
+            return "操作已成功执行。请查看仪表板上的效果，任何告警都将同时通过仪表板、电子邮件和短信通知。"
+    else:
+        if language == "en":
+            return "Sorry, configuration failed."
+        elif language == "cn":
+            return "抱歉，配置没能成功。"
+
+
 def openai_call_function(messages):
     """
     added by Weihang
@@ -872,12 +935,18 @@ def ask_kb(msg):
 
     msg_txt = msg_txt.lstrip()  # Remove spaces from the front of the string
 
-    # for demo only
-    if msg_txt.lower() == "yes" or msg_txt.lower() == "ok":
-        # To-Do: Execute the first task in the task queue
-        return "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time."
+    # only for demos that require automated action execution
+    if msg_txt.lower() == "yes" or msg_txt.lower() == "ok" or msg_txt.lower() == "Okay" or msg_txt.lower() == "Do it" or msg_txt.lower() == "You can do it":
+        # Execute the first task in the task queue
+        if AUTOACTION:
+            return first_action("en")
+        else:
+            return "The operation has been successfully executed. Please check the effect on the dashboard, any alerts will be notified via dashboard, email and SMS at the same time."
     if msg_txt == "好的" or msg_txt == "好" or msg_txt == "可以" or msg_txt == "请执行" or msg_txt == "可以执行" or msg_txt == "执行":
-        return "操作已成功执行。请查看仪表板上的效果，任何告警都将同时通过仪表板、电子邮件和短信通知。"
+        if AUTOACTION:
+            return first_action("cn")
+        else:
+            return "操作已成功执行。请查看仪表板上的效果，任何告警都将同时通过仪表板、电子邮件和短信通知。"
     if msg_txt.lower() == "no" or msg_txt.lower() == "cancel":
         return "Okay. No operations were performed."
 
@@ -898,6 +967,8 @@ def ask_kb(msg):
             result = k8s_status(args, msg_txt)
         elif function_name == "k8s_fso":
             result = k8s_fso(args)
+        elif function_name == "k8s_underlying":
+            result = k8s_underlying(args)
         elif function_name == "app_status":
             result = app_status(args)
         elif function_name == "roce_performance":
