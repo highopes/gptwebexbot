@@ -2,6 +2,16 @@
 
 ## Overview
 
+**Webex UI GenAIOps** serves as a conceptual demonstration of the production-level CX GenAIOps system. When deployed in an **AI Full-Stack Lab** environment for demonstration purposes, it is primarily used to:
+
+- Collect insights from tools across all layers of the AI full stack.
+- Correlate data from various layers based on specific task requirements.
+- Use prompt engineering to deliver correlated data to OpenAI’s API for intelligent responses.
+
+This process can also dynamically employ **Retrieval-Augmented Generation (RAG)** to query local knowledge bases. The RAG approach ensures responses are more precise and exhibit lower levels of hallucination, tailored to specific tasks.
+
+For detailed demonstration procedures, refer to the **AI Full Stack Demo Playbook**.
+
 - **Webex UI GenAIOps** is a lightweight demonstration version of the CX GenAIOps system. Unlike the CX version, it does not include:
   - A dedicated CX web interface,
   - A localized CX fine-tuned large model,
